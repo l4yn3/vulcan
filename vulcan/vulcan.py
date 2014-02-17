@@ -25,15 +25,16 @@ from gevent import Timeout
 from gevent import threadpool
 
 from exceptions import *
+from plugin import *
 
 monkey.patch_all()
+import os
 import sys
 import time
 import uuid
 import string
 import urlparse
 import logging
-import random
 
 import requests
 import chardet
@@ -85,7 +86,6 @@ def to_unicode(data, charset=None):
         unicode_data = data
     return unicode_data
 
-
 class Fetcher(Greenlet):
     """抓取器(下载器)类"""
     def __init__(self,spider):
@@ -117,7 +117,9 @@ class Fetcher(Greenlet):
                 if not url_data.html:
                     try:
                         if url_data not in self.crawler_cache:
-                            html = self._open(url_data)
+                            html = ''
+                            with gevent.Timeout(self.spider.internal_timeout,False) as timeout:
+                                html = self._open(url_data)
                             if not html.strip():
                                 self.spider.fetcher_queue.task_done()
                                 continue
@@ -127,10 +129,11 @@ class Fetcher(Greenlet):
                                 self.crawler_queue.put(url_data,block=True)
                             self.crawler_cache.insert(url_data)
                     except Exception,e:
-                        pass
+                        import traceback
+                        traceback.print_exc()
                 self.spider.fetcher_queue.task_done()
 
-    def _open(self,url):
+    def _open(self,url_data):
         '''
         获取HTML内容
         '''
@@ -139,10 +142,12 @@ class Fetcher(Greenlet):
             'User-Agent':'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.76 Safari/537.36',
             'Accept-Encoding':'gzip,deflate,sdch'
         }
+        if self.spider.custom_headers:
+            human_headers.update(self.spider.custom_headers)
         try:
-            r = requests.get(str(url), headers=human_headers)
+            r = requests.get(url_data.url,headers=human_headers)
         except Exception,e:
-            self.logger.warn("%s %s" % (self.url,str(e)))
+            self.logger.warn("%s %s" % (url,str(e)))
             return u''
         else:
             if r.headers.get('content-type','').find('text/html') >= 0:
@@ -160,7 +165,7 @@ class Spider(object):
     """爬虫主类"""
     logger = logging.getLogger("spider")
         
-    def __init__(self, concurrent_num=20, crawl_tags=[], depth=3, 
+    def __init__(self, concurrent_num=20, crawl_tags=[], custom_headers={}, plugin=[], depth=3, 
                  max_url_num=300, internal_timeout=60, spider_timeout=6*3600, 
                  crawler_mode=0, same_origin=True, dynamic_parse=False):
         """
@@ -182,6 +187,7 @@ class Spider(object):
         self.logger.addHandler(hd)
         
         self.stopped = event.Event()
+        self.internal_timeout = internal_timeout
         self.internal_timer = Timeout(internal_timeout)
         
         self.crawler_mode = crawler_mode #爬取器模型
@@ -209,6 +215,9 @@ class Spider(object):
         if self.dynamic_parse:
             self.webkit = WebKit()
         self.crawler_stopped = event.Event()
+        
+        self.plugin_handler = plugin #注册Crawler中使用的插件
+        self.custom_headers = custom_headers
     
     def _start_fetcher(self):
         '''
@@ -302,6 +311,15 @@ class Spider(object):
                     url = UrlData(link,depth=curr_depth)
                     self.fetcher_cache.insert(url)
                     self.fetcher_queue.put(url,block=True)
+                    
+                for plugin_name in self.plugin_handler: #循环动态调用初始化时注册的插件
+                    try:
+                        plugin_obj = eval(plugin_name)()
+                        plugin_obj.start(url_data)
+                    except Exception,e:
+                        import traceback
+                        traceback.print_exc()
+                    
                 self.crawler_queue.task_done()
     
     def check_url_usable(self,link):
@@ -317,6 +335,11 @@ class Spider(object):
         if self.same_origin:
             if not self._check_same_origin(link):
                 return False
+            
+        link_ext = os.path.splitext(urlparse.urlsplit(link).path)[-1][1:]
+        if link_ext in self.ignore_ext:
+            return False
+        
         return True
 
     def feed_url(self,url):
@@ -370,7 +393,10 @@ class Spider(object):
         return url_origin == self.origin
 
 if __name__ == '__main__':
-    spider = Spider(concurrent_num=10,depth=5,max_url_num=300,crawler_mode=1,dynamic_parse=False)
+    custom_headers = {'Referer':'http://www.baidu.com/'}
+    custom_plugin = ['CustomPlugin']
+    spider = Spider(concurrent_num=20,custom_headers=custom_headers,
+                    plugin=custom_plugin,depth=5,max_url_num=500,crawler_mode=1,dynamic_parse=False)
     url = sys.argv[1]
     spider.feed_url(url)
     spider.start()

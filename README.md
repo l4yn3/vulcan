@@ -59,6 +59,13 @@ fetcher和crawler两部分独立工作，互不干扰，通过queue进行链接�
 
 ![image](https://raw2.github.com/pnigos/vulcan/master/screenshot/screenshot.png)
 
+### 更新日志
+20140217：
+>
+* 修正fetcher中一处bug。
+* 增加插件机制，可以自定义类和类方法来自定义插件处理爬虫请求及HTML。
+* gevent模式下增加socket超时机制。
+* 增加URL后缀黑名单。
 
 ### TODO
 

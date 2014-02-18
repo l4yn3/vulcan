@@ -147,7 +147,7 @@ class Fetcher(Greenlet):
         try:
             r = requests.get(url_data.url,headers=human_headers)
         except Exception,e:
-            self.logger.warn("%s %s" % (url,str(e)))
+            self.logger.warn("%s %s" % (url_data.url,str(e)))
             return u''
         else:
             if r.headers.get('content-type','').find('text/html') >= 0:

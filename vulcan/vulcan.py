@@ -118,7 +118,7 @@ class Fetcher(Greenlet):
                     try:
                         if url_data not in self.crawler_cache:
                             html = ''
-                            with gevent.Timeout(self.spider.internal_timeout,False) as timeout:
+                            with gevent.Timeout(self.spider.internal_timeout*10,False) as timeout:
                                 html = self._open(url_data)
                             if not html.strip():
                                 self.spider.fetcher_queue.task_done()
@@ -147,7 +147,7 @@ class Fetcher(Greenlet):
         try:
             r = requests.get(url_data.url,headers=human_headers)
         except Exception,e:
-            self.logger.warn("%s %s" % (url,str(e)))
+            self.logger.warn("%s %s" % (url_data.url,str(e)))
             return u''
         else:
             if r.headers.get('content-type','').find('text/html') >= 0:
@@ -393,10 +393,10 @@ class Spider(object):
         return url_origin == self.origin
 
 if __name__ == '__main__':
-    custom_headers = {'Referer':'http://www.baidu.com/'}
-    custom_plugin = ['CustomPlugin']
+    custom_headers = {'Referer':'http://apk.hiapk.com/'}
+    custom_plugin = ['HiapkDownPlugin']
     spider = Spider(concurrent_num=20,custom_headers=custom_headers,
-                    plugin=custom_plugin,depth=5,max_url_num=500,crawler_mode=1,dynamic_parse=False)
+                    plugin=custom_plugin,depth=5,max_url_num=1000,crawler_mode=1,dynamic_parse=False)
     url = sys.argv[1]
     spider.feed_url(url)
     spider.start()

@@ -26,6 +26,7 @@ from gevent import threadpool
 
 from exceptions import *
 from plugin import *
+from contextlib import closing
 
 monkey.patch_all()
 import re
@@ -92,6 +93,7 @@ class Fetcher(Greenlet):
     def __init__(self,spider):
         Greenlet.__init__(self)
         self.fetcher_id = str(uuid.uuid1())[:8]
+        self.TOO_LONG = 1048576 # 1M
         self.spider = spider
         self.fetcher_cache = self.spider.fetcher_cache
         self.crawler_cache = self.spider.crawler_cache
@@ -116,12 +118,8 @@ class Fetcher(Greenlet):
                     gevent.sleep()
             else:
                 if not url_data.html:
-                    for regx in self.spider.url_exclude_regx: #使用自定义正则排除指定的url
-                        match = re.search(regx,url_data.url,re.I|re.M|re.U)
-                        if match:
-                            break
                     try:
-                        if url_data not in set(self.crawler_cache) and not match:
+                        if url_data not in set(self.crawler_cache):
                             html = ''
                             with gevent.Timeout(self.spider.internal_timeout,False) as timeout:
                                 html = self._open(url_data)
@@ -150,17 +148,28 @@ class Fetcher(Greenlet):
         if self.spider.custom_headers:
             human_headers.update(self.spider.custom_headers)
         try:
-            r = requests.get(url_data.url,headers=human_headers)
+            r = requests.get(url_data.url,headers=human_headers,stream=True)
         except Exception,e:
             self.logger.warn("%s %s" % (url_data.url,str(e)))
             return u''
         else:
-            if r.headers.get('content-type','').find('text/html') >= 0:
+            if r.headers.get('content-type','').find('text/html') < 0:
+                r.close()
+                return u''
+            if int(r.headers.get('content-length',self.TOO_LONG)) > self.TOO_LONG:
+                r.close()
+                return u''
+            try:
                 html = r.content
                 html = html.decode('utf-8','ignore')
-                return html
-            else:
-                return u''
+            except Exception,e:
+                self.logger.warn("%s %s" % (url_data.url,str(e)))
+            finally:
+                r.close()
+                if vars().get('html'):
+                    return html
+                else:
+                    return u''
     
     def _run(self):
         self._fetcher()
@@ -176,6 +185,8 @@ class Spider(object):
         """
         concurrent_num    : 并行crawler和fetcher数量
         crawl_tags        : 爬行时收集URL所属标签列表
+        custom_headers    : 自定义HTTP请求头
+        plugin            : 自定义插件列表
         depth             : 爬行深度限制
         max_url_num       : 最大收集URL数量
         internal_timeout  : 内部调用超时时间
@@ -223,7 +234,6 @@ class Spider(object):
         
         self.plugin_handler = plugin #注册Crawler中使用的插件
         self.custom_headers = custom_headers
-        self.url_exclude_regx = [r"""Download\.aspx\?aid=\d+&.*?rel=nofollow\b"""]
     
     def _start_fetcher(self):
         '''
@@ -399,7 +409,7 @@ class Spider(object):
         return url_origin == self.origin
 
 if __name__ == '__main__':
-    spider = Spider(concurrent_num=20,depth=5,max_url_num=300,crawler_mode=0,dynamic_parse=False)
+    spider = Spider(concurrent_num=20,depth=5,max_url_num=300,crawler_mode=1,dynamic_parse=False)
     url = sys.argv[1]
     spider.feed_url(url)
     spider.start()

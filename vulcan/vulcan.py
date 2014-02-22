@@ -28,6 +28,7 @@ from exceptions import *
 from plugin import *
 
 monkey.patch_all()
+import re
 import os
 import sys
 import time
@@ -115,10 +116,14 @@ class Fetcher(Greenlet):
                     gevent.sleep()
             else:
                 if not url_data.html:
+                    for regx in self.spider.url_exclude_regx: #使用自定义正则排除指定的url
+                        match = re.search(regx,url_data.url,re.I|re.M|re.U)
+                        if match:
+                            break
                     try:
-                        if url_data not in self.crawler_cache:
+                        if url_data not in set(self.crawler_cache) and not match:
                             html = ''
-                            with gevent.Timeout(self.spider.internal_timeout*10,False) as timeout:
+                            with gevent.Timeout(self.spider.internal_timeout,False) as timeout:
                                 html = self._open(url_data)
                             if not html.strip():
                                 self.spider.fetcher_queue.task_done()
@@ -199,8 +204,8 @@ class Spider(object):
             self.crawler_pool = pool.Pool(self.concurrent_num)
             
         #self.fetcher_queue = queue.JoinableQueue(maxsize=self.concurrent_num*100)
-        self.fetcher_queue = threadpool.Queue(maxsize=self.concurrent_num*100)
-        self.crawler_queue = threadpool.Queue(maxsize=self.concurrent_num*100)
+        self.fetcher_queue = threadpool.Queue(maxsize=self.concurrent_num*10000)
+        self.crawler_queue = threadpool.Queue(maxsize=self.concurrent_num*10000)
         
         self.fetcher_cache = UrlCache()
         self.crawler_cache = UrlCache()
@@ -218,6 +223,7 @@ class Spider(object):
         
         self.plugin_handler = plugin #注册Crawler中使用的插件
         self.custom_headers = custom_headers
+        self.url_exclude_regx = [r"""Download\.aspx\?aid=\d+&.*?rel=nofollow\b"""]
     
     def _start_fetcher(self):
         '''
@@ -393,10 +399,7 @@ class Spider(object):
         return url_origin == self.origin
 
 if __name__ == '__main__':
-    custom_headers = {'Referer':'http://apk.hiapk.com/'}
-    custom_plugin = ['HiapkDownPlugin']
-    spider = Spider(concurrent_num=20,custom_headers=custom_headers,
-                    plugin=custom_plugin,depth=5,max_url_num=1000,crawler_mode=1,dynamic_parse=False)
+    spider = Spider(concurrent_num=20,depth=5,max_url_num=300,crawler_mode=0,dynamic_parse=False)
     url = sys.argv[1]
     spider.feed_url(url)
     spider.start()

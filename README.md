@@ -57,7 +57,7 @@ fetcher和crawler两部分独立工作，互不干扰，通过queue进行链接�
     spider.feed_url("http://www.baidu.com/")
     spider.start()
 
-![image](https://raw2.github.com/pnigos/vulcan/master/screenshot/screenshot.png)
+![image](https://raw.githubusercontent.com/pnigos/vulcan/master/screenshot/screenshot.png)
 
 ### 更新日志
 20140217：
